@@ -1,0 +1,1 @@
+This is a basic slackbot that can run markets and allow people to trade via slack.
