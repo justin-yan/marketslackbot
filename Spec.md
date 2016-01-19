@@ -9,10 +9,11 @@ lift 4
 
 start <descrip> // launch a new book with <descrip>
 settle <price>  // settle current market at <price>
+pos    // view entire market's positions
 mypos  // view your current positions
+book   // view entire market book and description
 mybook // view your current orders
 clear  // removes all of your orders
-book   // view entire market book and description
 
 New bids and orders should insert quickly.
 Find/pop min/max should also be fast (will need to check for crossing on every bid/ask).
