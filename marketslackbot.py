@@ -45,7 +45,6 @@ class Market(object):
         # If you make it out of the loop without returning, the remaining quantity is ready to be inserted as an order.
         self.bids.insert_order(price, quantity, owner)
 
-
     def ask(self, price, quantity, owner):
         cur_bid = self.bids.peek_lead()
         while cur_bid and cur_bid.price > price:  # checks for bid, then checks to see bid is expensive
@@ -65,7 +64,6 @@ class Market(object):
 
         # If you make it out of the loop without returning, the remaining quantity is ready to be inserted as an order.
         self.asks.insert_order(price, quantity, owner)
-
 
     def hit(self, quantity, owner):
         while quantity > 0:
@@ -90,16 +88,45 @@ class Market(object):
                 self.asks.pop_lead()
 
     def view_orders(self, owner=None):
-        pass
+        bids = []
+        asks = []
+        for chain, output in [(self.bids, bids), (self.asks, asks)]:
+            cur_order = chain.lead
+            while cur_order is not None:
+                if owner is None or cur_order.owner == owner:
+                    output.append(cur_order)
+                cur_order = cur_order.next
+        return [sorted(bids, key=lambda x: x.price), sorted(asks, key=lambda x: x.price)]
 
     def view_positions(self, owner=None):
-        pass
+        if owner:
+            return self.position_book[owner]
+        else:
+            return [i for i in self.position_book.items()]
 
     def clear(self, owner=None):
-        pass
+        if owner is None:
+            self.bids = BidOrderChain()
+            self.asks = AskOrderChain()
+        else:
+            for chain in [self.bids, self.asks]:
+                prev_order = None
+                cur_order = chain.lead
+                while cur_order is not None:
+                    if cur_order.owner == owner:
+                        if prev_order:
+                            prev_order.next = cur_order.next
+                        else:
+                            chain.lead = cur_order.next
+                    else:
+                        prev_order = cur_order
+                    cur_order = cur_order.next
 
     def settle(self, price):
-        pass
+        cash_settlement = {}
+        for k, v in self.position_book.items():
+            cash_settlement[k] = v.cash + v.net_long*price
+        return cash_settlement
 
 
 class OrderChain(object):
@@ -172,10 +199,10 @@ class Order(object):
         self.next = None
 
     def __str__(self):
-        return ",".join([str(self.price), str(self.quantity), self.owner])
+        return "(" + ",".join([str(self.price), str(self.quantity), self.owner]) + ")"
 
     def __repr__(self):
-        return ",".join([str(self.price), str(self.quantity), self.owner])
+        return "(" + ",".join([str(self.price), str(self.quantity), self.owner]) + ")"
 
 
 class Position(object):
@@ -185,32 +212,11 @@ class Position(object):
         self.net_long = 0
 
     def __str__(self):
-        return ",".join([str(self.cash), str(self.net_long)])
+        return "(cash:{0}, net_long:{1})".format(self.cash, self.net_long)
 
     def __repr__(self):
-        return ",".join([str(self.cash), str(self.net_long)])
+        return "(cash:{0}, net_long:{1})".format(self.cash, self.net_long)
 
 
 if __name__ == '__main__':
-    # test = BidOrderChain()
-    # test = AskOrderChain()
-    # test.insert_order(5, 5, "me")
-    # test.insert_order(4, 2, "you")
-    # test.insert_order(4.5, 2, "him")
-    # print(test)
-    # test.pop_lead()
-    # print(test)
-
-
-    # def bid(self, price, quantity, owner):
-
-    test = Market("new test market")
-    print(test)
-    test.bid(5, 3, "me")
-    test.bid(7, 3, "me")
-    test.bid(6, 4, "you")
-    print(test)
-    # test.hit(3, "me")
-    # print(test)
-    test.ask(4, 11, "you")
-    print(test)
+    pass
