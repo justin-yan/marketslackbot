@@ -7,8 +7,8 @@ ask 1.1 for 4
 hit 5
 lift 4
 
-start <descrip> // launch a new book with <descrip>
-settle <price>  // settle current market at <price>
+marketstart <descrip> // launch a new book with <descrip>
+marketsettle <price>  // settle current market at <price>
 pos    // view entire market's positions
 mypos  // view your current positions
 book   // view entire market book and description

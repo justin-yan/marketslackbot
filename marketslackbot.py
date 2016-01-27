@@ -2,6 +2,9 @@ import operator
 from collections import defaultdict
 import time
 from slackclient import SlackClient
+import configparser
+from os.path import expanduser
+import json
 
 
 class Market(object):
@@ -68,6 +71,8 @@ class Market(object):
     def hit(self, quantity, owner):
         while quantity > 0:
             cur_bid = self.bids.peek_lead()
+            if cur_bid is None: # hit everything on the market
+                break
             trade_qty = min(quantity, cur_bid.quantity)
             self.transact(cur_bid.price, trade_qty, cur_bid.owner, owner)
             quantity -= trade_qty
@@ -76,11 +81,13 @@ class Market(object):
             if cur_bid.quantity == 0:
                 self.bids.pop_lead()
 
-    def lift(self, quantity):
+    def lift(self, quantity, owner):
         while quantity > 0:
             cur_ask = self.asks.peek_lead()
+            if cur_ask is None: # lifted everything on the market
+                break
             trade_qty = min(quantity, cur_ask.quantity)
-            self.transact(cur_bid.price, trade_qty, owner, cur_ask.owner)
+            self.transact(cur_ask.price, trade_qty, owner, cur_ask.owner)
             quantity -= trade_qty
             cur_ask.quantity -= trade_qty
 
@@ -218,5 +225,132 @@ class Position(object):
         return "(cash:{0}, net_long:{1})".format(self.cash, self.net_long)
 
 
+from functools import lru_cache
+@lru_cache(1024)
+def map_user(user_id):
+    return json.loads(sc.api_call("users.info", user=user_id).decode('utf-8'))['user']['name']
+
+
 if __name__ == '__main__':
-    pass
+    config = configparser.ConfigParser()
+    config.read(expanduser('~') + '/.config/marketslackbot.cfg')
+    token = config.get("default", "token")
+
+    market_map = {}
+    sc = SlackClient(token)
+    user_id = json.loads(sc.api_call("auth.test").decode('utf-8'))['user_id']
+    if sc.rtm_connect():
+        while True:
+            msg_list = sc.rtm_read()
+            for msg in msg_list:
+                if msg.get('type') == 'message' and msg['channel'][0] in ['G', 'C'] and msg['user'] != user_id:
+                    channel = msg['channel']
+                    owner = map_user(msg['user'])
+                    tokens = msg['text'].split(' ')
+                    market = market_map.get(channel)
+                    print(tokens)
+                    if len(tokens) == 1:
+                        if tokens[0] == 'pos':
+                            output = market.view_positions() if market else "No market is available!"
+                        elif tokens[0] == 'mypos':
+                            output = market.view_positions(owner) if market else "No market is available!"
+                        elif tokens[0] == 'book':
+                            output = market.view_orders() if market else "No market is available!"
+                        elif tokens[0] == 'mybook':
+                            output = market.view_orders(owner) if market else "No market is available!"
+                        elif tokens[0] == 'clear':
+                            if market:
+                                market.clear(owner)
+                                output = "{0}'s orders cleared!".format(owner)
+                            else:
+                                output = "No market is available!"
+                        else: # not a valid command
+                            output = False
+                    elif len(tokens) == 2:
+                        if tokens[0] == 'marketstart':
+                            if market:
+                                output = "Market already exists!"
+                            else:
+                                market_map[channel] = Market(tokens[1])
+                                output = "Market started!"
+                        elif tokens[0] == 'marketsettle':
+                            if market:
+                                try:
+                                    output = market.settle(float(tokens[1]))
+                                    market_map.pop(channel)
+                                except ValueError:
+                                    output = "Need a valid float to settle market"
+                            else:
+                                output = "No market is available!"
+                        elif tokens[0] == 'hit':
+                            if market:
+                                try:
+                                    market.hit(int(tokens[1]), owner)
+                                    output = "Hit Received"
+                                except ValueError:
+                                    output = "Need valid int to hit"
+                            else:
+                                output = "No market is available!"
+                        elif tokens[0] == 'lift':
+                            if market:
+                                try:
+                                    market.lift(int(tokens[1]), owner)
+                                    output = "Lift Received"
+                                except ValueError:
+                                    output = "Need valid int to lift"
+                            else:
+                                output = "No market is available!"
+                        elif tokens[0] == 'bid':
+                            if market:
+                                try:
+                                    market.bid(float(tokens[1]), 1, owner)
+                                    output = "Bid Received"
+                                except ValueError:
+                                    output = "Need valid float for bid price"
+                            else:
+                                output = "No market is available!"
+                        elif tokens[0] == 'ask':
+                            if market:
+                                try:
+                                    market.ask(float(tokens[1]), 1, owner)
+                                    output = "Ask Received"
+                                except ValueError:
+                                    output = "Need valid float for ask price"
+                            else:
+                                output = "No market is available!"
+                        else: # not a valid command
+                            output = False
+                    elif len(tokens) == 4 and tokens[2] == 'for':
+                        if tokens[0] == 'bid':
+                            if market:
+                                try:
+                                    price = float(tokens[1])
+                                    try:
+                                        qty = int(tokens[3])
+                                        market.bid(float(price), qty, owner)
+                                        output = "Bid Received"
+                                    except ValueError:
+                                        output = "Need valid int for bid qty"
+                                except ValueError:
+                                    output = "Need valid float for bid price"
+                            else:
+                                output = "No market is available!"
+                        elif tokens[0] == 'ask':
+                            if market:
+                                try:
+                                    price = float(tokens[1])
+                                    try:
+                                        qty = int(tokens[3])
+                                        market.ask(float(price), qty, owner)
+                                        output = "Ask Received"
+                                    except ValueError:
+                                        output = "Need valid int for ask qty"
+                                except ValueError:
+                                    output = "Need valid float for ask price"
+                            else:
+                                output = "No market is available!"
+                        else: # not a valid command
+                            output = False
+
+                    if output:
+                        sc.rtm_send_message(msg['channel'], str(output))
