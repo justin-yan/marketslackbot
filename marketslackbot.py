@@ -285,14 +285,16 @@ if __name__ == '__main__':
                         else: # not a valid command
                             output = False
                     elif len(tokens) == 2:
-                        if tokens[0] == "<@{0}>:".format(user_id) and tokens[1] == "help":
-                            output = """
+                        if tokens[0] == "<@{0}>:".format(user_id):
+                            if tokens[1] == "help":
+                                output = """
 ```
 Hi! I'm here to help run a market so that you can trade!
 
 Invite me to a slack channel first!  From there, you can interact with me through the following commands:
 
 @marketbot help
+@marketbot details
 bid <price:float>
 bid <price:float> for <qty:int>
 ask <price:float>
@@ -308,7 +310,11 @@ book   // view entire market book and description
 mybook // view your current orders
 stat   // view the description, bid-ask spread, and last trade price of the market
 clear  // removes all of your orders
-
+```
+"""
+                            if tokens[1] == "details":
+                                output = '''
+```
 A quick run through on some of the finer points of working with me:
 
 I allow one market at a time per channel. (Sorry, I know derivatives and arbitrage would be fun)
@@ -318,7 +324,7 @@ Bids and Asks should be treated as standing limit orders with no Fill or Kill pr
 Because I'm lazy, if you hit or lift yourself, you'll trade with yourself - this has no net effect on your positions as they will net to 0, but will eliminate your standing trades and also decrease the quantity that you end up hitting/lifting by.
 Trades resolve by best price, and then FIFO in event of ties.
 ```
-                            """
+'''
                         elif tokens[0] == 'marketstart':
                             if market:
                                 output = "Market already exists!"
