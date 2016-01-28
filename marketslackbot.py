@@ -243,12 +243,12 @@ if __name__ == '__main__':
         while True:
             msg_list = sc.rtm_read()
             for msg in msg_list:
-                if msg.get('type') == 'message' and msg['channel'][0] in ['G', 'C'] and msg['user'] != user_id:
+                print(msg)
+                if msg.get('type') == 'message' and msg.get('subtype') is None and msg['channel'][0] in ['G', 'C'] and msg['user'] != user_id:
                     channel = msg['channel']
                     owner = map_user(msg['user'])
                     tokens = msg['text'].split(' ')
                     market = market_map.get(channel)
-                    print(tokens)
                     if len(tokens) == 1:
                         if tokens[0] == 'pos':
                             output = market.view_positions() if market else "No market is available!"
@@ -351,6 +351,8 @@ if __name__ == '__main__':
                                 output = "No market is available!"
                         else: # not a valid command
                             output = False
+                    else:
+                        output = False
 
                     if output:
                         sc.rtm_send_message(msg['channel'], str(output))
