@@ -5,6 +5,7 @@ from slackclient import SlackClient
 import configparser
 from os.path import expanduser
 import json
+import pprint
 
 
 class Market(object):
@@ -14,6 +15,7 @@ class Market(object):
         self.bids = BidOrderChain()
         self.asks = AskOrderChain()
         self.position_book = defaultdict(Position)
+        self.last_trade_price = None
 
     def __str__(self):
         output_string = "Market Description: {0}\n".format(self.description)
@@ -24,9 +26,10 @@ class Market(object):
 
     def transact(self, price, quantity, buyer, seller):
         self.position_book[buyer].cash -= price * quantity
-        self.position_book[buyer].net_long += quantity
+        self.position_book[buyer].net_position += quantity
         self.position_book[seller].cash += price * quantity
-        self.position_book[seller].net_long -= quantity
+        self.position_book[seller].net_position -= quantity
+        self.last_trade_price = price
 
     def bid(self, price, quantity, owner):
         cur_ask = self.asks.peek_lead()
@@ -103,13 +106,14 @@ class Market(object):
                 if owner is None or cur_order.owner == owner:
                     output.append(cur_order)
                 cur_order = cur_order.next
-        return [sorted(bids, key=lambda x: x.price), sorted(asks, key=lambda x: x.price)]
+        # Return the bids from highest -> lowest, asks lowest -> highest
+        return {"bids":sorted(bids, key=lambda x: -x.price), "asks":sorted(asks, key=lambda x: x.price)}
 
     def view_positions(self, owner=None):
         if owner:
-            return self.position_book[owner]
+            return {owner: self.position_book[owner]}
         else:
-            return [i for i in self.position_book.items()]
+            return self.position_book
 
     def clear(self, owner=None):
         if owner is None:
@@ -132,7 +136,7 @@ class Market(object):
     def settle(self, price):
         cash_settlement = {}
         for k, v in self.position_book.items():
-            cash_settlement[k] = v.cash + v.net_long*price
+            cash_settlement[k] = v.cash + v.net_position*price
         return cash_settlement
 
 
@@ -206,23 +210,23 @@ class Order(object):
         self.next = None
 
     def __str__(self):
-        return "(" + ",".join([str(self.price), str(self.quantity), self.owner]) + ")"
+        return "(price={0}, quantity={1}, owner={2})".format(self.price, self.quantity, self.owner)
 
     def __repr__(self):
-        return "(" + ",".join([str(self.price), str(self.quantity), self.owner]) + ")"
+        return "(price={0}, quantity={1}, owner={2})".format(self.price, self.quantity, self.owner)
 
 
 class Position(object):
 
     def __init__(self):
         self.cash = 0
-        self.net_long = 0
+        self.net_position = 0
 
     def __str__(self):
-        return "(cash:{0}, net_long:{1})".format(self.cash, self.net_long)
+        return "(cash={0}, net_position={1})".format(self.cash, self.net_position)
 
     def __repr__(self):
-        return "(cash:{0}, net_long:{1})".format(self.cash, self.net_long)
+        return "(cash={0}, net_position={1})".format(self.cash, self.net_position)
 
 
 from functools import lru_cache
@@ -251,13 +255,27 @@ if __name__ == '__main__':
                     market = market_map.get(channel)
                     if len(tokens) == 1:
                         if tokens[0] == 'pos':
-                            output = market.view_positions() if market else "No market is available!"
+                            output = "```" + pprint.pformat(dict(market.view_positions())) + "```" if market else "No market is available!"
                         elif tokens[0] == 'mypos':
-                            output = market.view_positions(owner) if market else "No market is available!"
+                            output = "```" + pprint.pformat(dict(market.view_positions(owner))) + "```" if market else "No market is available!"
                         elif tokens[0] == 'book':
-                            output = market.view_orders() if market else "No market is available!"
+                            output = "```" + pprint.pformat(market.view_orders()) + "```" if market else "No market is available!"
                         elif tokens[0] == 'mybook':
-                            output = market.view_orders(owner) if market else "No market is available!"
+                            output = "```" + pprint.pformat(market.view_orders(owner)) + "```" if market else "No market is available!"
+                        elif tokens[0] == 'stat':
+                            if market:
+                                orders = market.view_orders()
+                                try:
+                                    bid = orders['bids'][0]
+                                except IndexError:
+                                    bid = None
+                                try:
+                                    ask = orders['asks'][0]
+                                except IndexError:
+                                    ask = None
+                                output = "Market for {3}: {0} at {1}, last trade: {2}".format(bid.price, ask.price, market.last_trade_price, market.description)
+                            else:
+                                output = "No market is available!"
                         elif tokens[0] == 'clear':
                             if market:
                                 market.clear(owner)
@@ -267,16 +285,50 @@ if __name__ == '__main__':
                         else: # not a valid command
                             output = False
                     elif len(tokens) == 2:
-                        if tokens[0] == 'marketstart':
+                        if tokens[0] == "<@{0}>:".format(user_id) and tokens[1] == "help":
+                            output = """
+```
+Hi! I'm here to help run a market so that you can trade!
+
+Invite me to a slack channel first!  From there, you can interact with me through the following commands:
+
+@marketbot help
+bid <price:float>
+bid <price:float> for <qty:int>
+ask <price:float>
+ask <price:float> for <qty:int>
+hit <qty:int>
+lift <qty:int>
+
+marketstart <asset:string#no_spaces>   // launch a new market in <asset>
+marketsettle <price:float>  // settle current market at <price> and close the market
+pos    // view entire market's positions
+mypos  // view your current positions
+book   // view entire market book and description
+mybook // view your current orders
+stat   // view the description, bid-ask spread, and last trade price of the market
+clear  // removes all of your orders
+
+A quick run through on some of the finer points of working with me:
+
+I allow one market at a time per channel. (Sorry, I know derivatives and arbitrage would be fun)
+A market is in some asset which *you* will manually settle at a final price (For example, you could trade on the probability of an event, and you would settle at 1 if it happened, 0 if it didn't).
+You can short arbitrarily with no costs - all assets are synthetics that will settle to cash at the <price> set by the marketsettle command.  That will then be added (or subtracted if you're short) to your final cash position.
+Bids and Asks should be treated as standing limit orders with no Fill or Kill provision (partial orders will happen).  A bid will fill any standing offers at the asking price if it's less than the bid (vice versa applies).
+Because I'm lazy, if you hit or lift yourself, you'll trade with yourself - this has no net effect on your positions as they will net to 0, but will eliminate your standing trades and also decrease the quantity that you end up hitting/lifting by.
+Trades resolve by best price, and then FIFO in event of ties.
+```
+                            """
+                        elif tokens[0] == 'marketstart':
                             if market:
                                 output = "Market already exists!"
                             else:
                                 market_map[channel] = Market(tokens[1])
-                                output = "Market started!"
+                                output = "Market for {0} started!".format(tokens[1])
                         elif tokens[0] == 'marketsettle':
                             if market:
                                 try:
-                                    output = market.settle(float(tokens[1]))
+                                    output = "```" + pprint.pformat(market.settle(float(tokens[1]))) + "```"
                                     market_map.pop(channel)
                                 except ValueError:
                                     output = "Need a valid float to settle market"
@@ -286,7 +338,7 @@ if __name__ == '__main__':
                             if market:
                                 try:
                                     market.hit(int(tokens[1]), owner)
-                                    output = "Hit Received"
+                                    output = "{0} Hit Received".format(owner)
                                 except ValueError:
                                     output = "Need valid int to hit"
                             else:
@@ -295,7 +347,7 @@ if __name__ == '__main__':
                             if market:
                                 try:
                                     market.lift(int(tokens[1]), owner)
-                                    output = "Lift Received"
+                                    output = "{0} - Lift Received".format(owner)
                                 except ValueError:
                                     output = "Need valid int to lift"
                             else:
@@ -304,7 +356,7 @@ if __name__ == '__main__':
                             if market:
                                 try:
                                     market.bid(float(tokens[1]), 1, owner)
-                                    output = "Bid Received"
+                                    output = "{0} - Bid Received".format(owner)
                                 except ValueError:
                                     output = "Need valid float for bid price"
                             else:
@@ -313,7 +365,7 @@ if __name__ == '__main__':
                             if market:
                                 try:
                                     market.ask(float(tokens[1]), 1, owner)
-                                    output = "Ask Received"
+                                    output = "{0} - Ask Received".format(owner)
                                 except ValueError:
                                     output = "Need valid float for ask price"
                             else:
@@ -328,7 +380,7 @@ if __name__ == '__main__':
                                     try:
                                         qty = int(tokens[3])
                                         market.bid(float(price), qty, owner)
-                                        output = "Bid Received"
+                                        output = "{0} - Bid Received".format(owner)
                                     except ValueError:
                                         output = "Need valid int for bid qty"
                                 except ValueError:
@@ -342,7 +394,7 @@ if __name__ == '__main__':
                                     try:
                                         qty = int(tokens[3])
                                         market.ask(float(price), qty, owner)
-                                        output = "Ask Received"
+                                        output = "{0} - Ask Received".format(owner)
                                     except ValueError:
                                         output = "Need valid int for ask qty"
                                 except ValueError:
@@ -355,4 +407,4 @@ if __name__ == '__main__':
                         output = False
 
                     if output:
-                        sc.rtm_send_message(msg['channel'], str(output))
+                        sc.rtm_send_message(msg['channel'], output)
