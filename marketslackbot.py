@@ -276,7 +276,7 @@ if __name__ == '__main__':
                                 if bid is not None and ask is not None:
                                     output = "Market for {3}: {0} at {1}, last trade: {2}".format(bid.price, ask.price, market.last_trade_price, market.description)
                                 else:
-                                    output = "Market for {3}: last trade: {2}".format(market.last_trade_price, market.description)
+                                    output = "Market for {1}: last trade: {0}".format(market.last_trade_price, market.description)
                             else:
                                 output = "No market is available!"
                         elif tokens[0] == 'clear':
