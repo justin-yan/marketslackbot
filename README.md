@@ -11,6 +11,7 @@ This bot only responds to messages in a channel, so make sure you invite marketb
 
 ```
 @marketbot help
+@marketbot details
 bid <price:float>
 bid <price:float> for <qty:int>
 ask <price:float>
